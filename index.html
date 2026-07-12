@@ -1,0 +1,735 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>房源管理系统</title>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+            background: #f5f7fa;
+            padding: 20px;
+            color: #333;
+        }
+        .header {
+            text-align: center;
+            margin-bottom: 24px;
+        }
+        .header h1 { font-size: 22px; color: #1a1a1a; margin-bottom: 6px; }
+        .header p { color: #666; font-size: 13px; }
+        .toolbar {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 16px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+        .toolbar input, .toolbar select {
+            padding: 8px 12px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            font-size: 14px;
+            outline: none;
+        }
+        .toolbar input:focus, .toolbar select:focus {
+            border-color: #4a90d9;
+            box-shadow: 0 0 0 2px rgba(74,144,217,0.15);
+        }
+        .toolbar input[type="text"] { flex: 1; min-width: 160px; }
+        .btn {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 6px;
+            font-size: 14px;
+            cursor: pointer;
+            transition: all 0.2s;
+            white-space: nowrap;
+        }
+        .btn-primary { background: #4a90d9; color: #fff; }
+        .btn-primary:hover { background: #357abd; }
+        .btn-success { background: #52c41a; color: #fff; }
+        .btn-success:hover { background: #3fad09; }
+        .btn-danger { background: #ff4d4f; color: #fff; padding: 4px 10px; font-size: 12px; }
+        .btn-danger:hover { background: #d9363e; }
+        .btn-edit { background: #faad14; color: #fff; padding: 4px 10px; font-size: 12px; }
+        .btn-edit:hover { background: #d4950c; }
+
+        /* 提醒面板 */
+        .reminder-panel {
+            background: #fff;
+            border-radius: 10px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+            padding: 16px 20px;
+            margin-bottom: 16px;
+            border-left: 4px solid #ff4d4f;
+            display: none;
+        }
+        .reminder-panel.active { display: block; }
+        .reminder-panel h3 { font-size: 15px; color: #ff4d4f; margin-bottom: 10px; }
+        .reminder-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 8px 0;
+            border-bottom: 1px solid #f5f5f5;
+            font-size: 13px;
+            flex-wrap: wrap;
+            gap: 4px;
+        }
+        .reminder-item:last-child { border-bottom: none; }
+        .reminder-item .info { flex: 1; }
+        .reminder-item .tenant-name { font-weight: 600; color: #333; }
+        .reminder-item .house-name { color: #666; margin-left: 8px; }
+        .reminder-item .days-left { font-weight: 600; }
+        .days-overdue { color: #ff4d4f; }
+        .days-urgent { color: #fa8c16; }
+        .days-normal { color: #52c41a; }
+
+        .stats {
+            display: flex;
+            gap: 12px;
+            margin-bottom: 16px;
+            flex-wrap: wrap;
+        }
+        .stat-card {
+            background: #fff;
+            padding: 10px 16px;
+            border-radius: 8px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+            font-size: 13px;
+        }
+        .stat-card span { font-weight: 600; color: #4a90d9; }
+        .stat-card.warning span { color: #ff4d4f; }
+
+        .table-container {
+            overflow-x: auto;
+            background: #fff;
+            border-radius: 10px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            min-width: 1400px;
+        }
+        th {
+            background: #f0f5ff;
+            padding: 12px 8px;
+            font-size: 12px;
+            font-weight: 600;
+            color: #333;
+            text-align: left;
+            border-bottom: 2px solid #e8e8e8;
+            white-space: nowrap;
+        }
+        td {
+            padding: 10px 8px;
+            font-size: 12px;
+            border-bottom: 1px solid #f0f0f0;
+            white-space: nowrap;
+        }
+        tr:hover td { background: #fafbfc; }
+        tr.row-overdue td { background: #fff1f0; }
+        tr.row-urgent td { background: #fff7e6; }
+        .status-vacant { color: #52c41a; font-weight: 600; }
+        .status-rented { color: #ff4d4f; font-weight: 600; }
+        .status-reserved { color: #faad14; font-weight: 600; }
+        .pay-monthly { background: #e6f7ff; color: #1890ff; padding: 2px 6px; border-radius: 4px; font-size: 11px; }
+        .pay-quarterly { background: #fff7e6; color: #fa8c16; padding: 2px 6px; border-radius: 4px; font-size: 11px; }
+        .pay-halfyear { background: #f6ffed; color: #52c41a; padding: 2px 6px; border-radius: 4px; font-size: 11px; }
+        .pay-yearly { background: #f9f0ff; color: #722ed1; padding: 2px 6px; border-radius: 4px; font-size: 11px; }
+        .actions { display: flex; gap: 4px; }
+
+        /* Modal */
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.5);
+            z-index: 1000;
+            justify-content: center;
+            align-items: flex-start;
+            padding-top: 40px;
+            overflow-y: auto;
+        }
+        .modal-overlay.active { display: flex; }
+        .modal {
+            background: #fff;
+            border-radius: 12px;
+            padding: 24px;
+            width: 92%;
+            max-width: 600px;
+            margin-bottom: 40px;
+        }
+        .modal h2 { margin-bottom: 16px; font-size: 18px; }
+        .form-group { margin-bottom: 12px; }
+        .form-group label {
+            display: block;
+            font-size: 13px;
+            color: #666;
+            margin-bottom: 4px;
+        }
+        .form-group input, .form-group select, .form-group textarea {
+            width: 100%;
+            padding: 8px 12px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            font-size: 14px;
+            outline: none;
+        }
+        .form-group textarea { resize: vertical; height: 60px; }
+        .form-row { display: flex; gap: 12px; }
+        .form-row .form-group { flex: 1; }
+        .form-section {
+            background: #f9fafb;
+            border-radius: 8px;
+            padding: 12px;
+            margin: 12px 0;
+            border: 1px solid #eee;
+        }
+        .form-section h4 { font-size: 13px; color: #4a90d9; margin-bottom: 10px; }
+        .modal-actions {
+            display: flex;
+            justify-content: flex-end;
+            gap: 10px;
+            margin-top: 16px;
+        }
+        .btn-cancel { background: #f0f0f0; color: #666; }
+        .btn-cancel:hover { background: #e0e0e0; }
+        .empty-state { text-align: center; padding: 60px 20px; color: #999; }
+        .profit { color: #52c41a; font-weight: 600; }
+        .profit-negative { color: #ff4d4f; font-weight: 600; }
+        .rent-due-tag {
+            display: inline-block;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 10px;
+            font-weight: 600;
+        }
+        .rent-due-overdue { background: #fff1f0; color: #ff4d4f; }
+        .rent-due-urgent { background: #fff7e6; color: #fa8c16; }
+        .rent-due-normal { background: #f6ffed; color: #52c41a; }
+        .loading { text-align: center; padding: 40px; color: #999; }
+
+        @media (max-width: 768px) {
+            body { padding: 12px; }
+            .toolbar { flex-direction: column; }
+            .toolbar input[type="text"] { width: 100%; }
+            .stats { flex-direction: column; }
+            .form-row { flex-direction: column; gap: 0; }
+            .header h1 { font-size: 20px; }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>房源管理系统</h1>
+        <p>房屋租赁信息管理 · 搜索筛选 · 交租提醒 · 云端同步</p>
+    </div>
+
+    <!-- 交租提醒面板 -->
+    <div class="reminder-panel" id="reminderPanel">
+        <h3>&#9888; 交租提醒</h3>
+        <div id="reminderList"></div>
+    </div>
+
+    <div class="toolbar">
+        <input type="text" id="searchInput" placeholder="搜索租客/房屋名称..." oninput="renderTable()">
+        <select id="filterTenant" onchange="renderTable()">
+            <option value="">全部租客</option>
+        </select>
+        <select id="filterPayment" onchange="renderTable()">
+            <option value="">全部付款方式</option>
+            <option value="月付">月付</option>
+            <option value="季付">季付</option>
+            <option value="半年付">半年付</option>
+            <option value="年付">年付</option>
+        </select>
+        <select id="filterStatus" onchange="renderTable()">
+            <option value="">全部状态</option>
+            <option value="空置">空置</option>
+            <option value="已租">已租</option>
+            <option value="预定">预定</option>
+        </select>
+        <button class="btn btn-primary" onclick="openModal()">+ 添加</button>
+        <button class="btn btn-success" onclick="exportData()">导出</button>
+    </div>
+
+    <div class="stats" id="stats"></div>
+
+    <div class="table-container">
+        <table>
+            <thead>
+                <tr>
+                    <th>序号</th>
+                    <th>租客</th>
+                    <th>房屋名称</th>
+                    <th>起始</th>
+                    <th>到期</th>
+                    <th>付款</th>
+                    <th>交租日</th>
+                    <th>下次交租</th>
+                    <th>房东价</th>
+                    <th>二房东价</th>
+                    <th>租客价</th>
+                    <th>中介费</th>
+                    <th>押金</th>
+                    <th>开票价</th>
+                    <th>利润</th>
+                    <th>状态</th>
+                    <th>备注</th>
+                    <th>操作</th>
+                </tr>
+            </thead>
+            <tbody id="tableBody">
+                <tr><td colspan="18" class="loading">加载中...</td></tr>
+            </tbody>
+        </table>
+        <div class="empty-state" id="emptyState" style="display:none;">暂无房源数据，点击"+ 添加"开始录入</div>
+    </div>
+
+    <!-- Modal -->
+    <div class="modal-overlay" id="modalOverlay" onclick="if(event.target===this)closeModal()">
+        <div class="modal">
+            <h2 id="modalTitle">添加房源</h2>
+            <input type="hidden" id="editId">
+            <div class="form-row">
+                <div class="form-group">
+                    <label>租客姓名 *</label>
+                    <input type="text" id="f_tenant" placeholder="谁租的">
+                </div>
+                <div class="form-group">
+                    <label>房屋名称 *</label>
+                    <input type="text" id="f_name" placeholder="如：奥创大厦501">
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>租赁起始</label>
+                    <input type="date" id="f_startDate">
+                </div>
+                <div class="form-group">
+                    <label>租赁到期</label>
+                    <input type="date" id="f_endDate">
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>付款方式</label>
+                    <select id="f_payMethod">
+                        <option value="月付">月付</option>
+                        <option value="季付">季付</option>
+                        <option value="半年付">半年付</option>
+                        <option value="年付">年付</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>状态</label>
+                    <select id="f_status">
+                        <option value="已租">已租</option>
+                        <option value="空置">空置</option>
+                        <option value="预定">预定</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="form-section">
+                <h4>&#128276; 交租提醒</h4>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>每月交租日（几号）</label>
+                        <input type="number" id="f_rentDay" min="1" max="31" placeholder="如：1">
+                    </div>
+                    <div class="form-group">
+                        <label>提前提醒天数</label>
+                        <input type="number" id="f_remindDays" min="0" max="30" value="3">
+                    </div>
+                </div>
+            </div>
+
+            <div class="form-row">
+                <div class="form-group">
+                    <label>房东价格（元/月）</label>
+                    <input type="number" id="f_landlordPrice" placeholder="房东租金">
+                </div>
+                <div class="form-group">
+                    <label>二房东价格（元/月）</label>
+                    <input type="number" id="f_subLandlordPrice" placeholder="二房东价格">
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>租客价格（元/月）</label>
+                    <input type="number" id="f_tenantPrice" placeholder="租客实付">
+                </div>
+                <div class="form-group">
+                    <label>中介费（元）</label>
+                    <input type="number" id="f_agencyFee" placeholder="中介费">
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>押金（元）</label>
+                    <input type="number" id="f_deposit" placeholder="押金">
+                </div>
+                <div class="form-group">
+                    <label>开票价格（元）</label>
+                    <input type="number" id="f_invoicePrice" placeholder="开票金额">
+                </div>
+            </div>
+            <div class="form-group">
+                <label>备注</label>
+                <textarea id="f_remark" placeholder="补充信息..."></textarea>
+            </div>
+            <div class="modal-actions">
+                <button class="btn btn-cancel" onclick="closeModal()">取消</button>
+                <button class="btn btn-primary" id="saveBtn" onclick="saveProperty()">保存</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Supabase 配置
+        const SUPABASE_URL = 'https://remnezpnamtpinqzfoby.supabase.co';
+        const SUPABASE_KEY = 'sb_publishable_-EE3l0hlexqm0uHPplZRZw_I1iZ4NSe';
+        const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+        let allData = [];
+
+        // 从数据库加载数据
+        async function loadData() {
+            const { data, error } = await supabase
+                .from('properties')
+                .select('*')
+                .order('created_at', { ascending: false });
+
+            if (error) {
+                console.error('加载数据失败:', error);
+                alert('数据加载失败，请检查网络连接');
+                return;
+            }
+            allData = data || [];
+            renderTable();
+        }
+
+        // 计算下次交租日期
+        function getNextRentDate(item) {
+            if (!item.rent_day || item.status !== '已租') return null;
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+            const year = today.getFullYear();
+            const month = today.getMonth();
+            const day = item.rent_day;
+
+            let nextDate = new Date(year, month, Math.min(day, new Date(year, month + 1, 0).getDate()));
+            if (nextDate < today) {
+                nextDate = new Date(year, month + 1, Math.min(day, new Date(year, month + 2, 0).getDate()));
+            }
+            return nextDate;
+        }
+
+        function getDaysUntilRent(item) {
+            const nextDate = getNextRentDate(item);
+            if (!nextDate) return null;
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+            return Math.ceil((nextDate - today) / (1000 * 60 * 60 * 24));
+        }
+
+        function renderReminders() {
+            const reminders = [];
+            allData.forEach(item => {
+                if (item.status !== '已租' || !item.rent_day) return;
+                const daysLeft = getDaysUntilRent(item);
+                if (daysLeft === null) return;
+                const remindDays = item.remind_days || 3;
+                if (daysLeft <= remindDays) {
+                    reminders.push({ ...item, daysLeft });
+                }
+            });
+
+            const panel = document.getElementById('reminderPanel');
+            const list = document.getElementById('reminderList');
+
+            if (reminders.length === 0) {
+                panel.classList.remove('active');
+                return;
+            }
+
+            panel.classList.add('active');
+            reminders.sort((a, b) => a.daysLeft - b.daysLeft);
+
+            list.innerHTML = reminders.map(r => {
+                let daysText, daysClass;
+                if (r.daysLeft < 0) {
+                    daysText = `已逾期${Math.abs(r.daysLeft)}天`;
+                    daysClass = 'days-overdue';
+                } else if (r.daysLeft === 0) {
+                    daysText = '今天交租';
+                    daysClass = 'days-overdue';
+                } else {
+                    daysText = `还有${r.daysLeft}天`;
+                    daysClass = r.daysLeft <= 1 ? 'days-urgent' : 'days-normal';
+                }
+                const nextDate = getNextRentDate(r);
+                const dateStr = nextDate ? `${nextDate.getMonth()+1}/${nextDate.getDate()}` : '';
+                return `<div class="reminder-item">
+                    <div class="info">
+                        <span class="tenant-name">${r.tenant}</span>
+                        <span class="house-name">${r.name}</span>
+                        <span style="color:#999;margin-left:6px;font-size:11px;">(${dateStr} 交${r.tenant_price}元)</span>
+                    </div>
+                    <span class="days-left ${daysClass}">${daysText}</span>
+                </div>`;
+            }).join('');
+        }
+
+        function updateTenantFilter() {
+            const tenants = [...new Set(allData.map(d => d.tenant).filter(Boolean))].sort();
+            const select = document.getElementById('filterTenant');
+            const current = select.value;
+            select.innerHTML = '<option value="">全部租客</option>' +
+                tenants.map(t => `<option value="${t}">${t}</option>`).join('');
+            select.value = current;
+        }
+
+        function getPayClass(method) {
+            const map = { '月付': 'pay-monthly', '季付': 'pay-quarterly', '半年付': 'pay-halfyear', '年付': 'pay-yearly' };
+            return map[method] || '';
+        }
+
+        function getStatusClass(status) {
+            const map = { '空置': 'status-vacant', '已租': 'status-rented', '预定': 'status-reserved' };
+            return map[status] || '';
+        }
+
+        function renderTable() {
+            const search = document.getElementById('searchInput').value.toLowerCase();
+            const filterPay = document.getElementById('filterPayment').value;
+            const filterStatus = document.getElementById('filterStatus').value;
+            const filterTenant = document.getElementById('filterTenant').value;
+
+            let filtered = allData.filter(item => {
+                if (search && !item.name.toLowerCase().includes(search) && !(item.tenant && item.tenant.toLowerCase().includes(search))) return false;
+                if (filterPay && item.pay_method !== filterPay) return false;
+                if (filterStatus && item.status !== filterStatus) return false;
+                if (filterTenant && item.tenant !== filterTenant) return false;
+                return true;
+            });
+
+            const tbody = document.getElementById('tableBody');
+            const emptyState = document.getElementById('emptyState');
+
+            if (filtered.length === 0) {
+                tbody.innerHTML = '';
+                emptyState.style.display = 'block';
+            } else {
+                emptyState.style.display = 'none';
+                tbody.innerHTML = filtered.map((item, idx) => {
+                    const profit = (item.tenant_price || 0) - (item.sub_landlord_price || item.landlord_price || 0);
+                    const profitClass = profit >= 0 ? 'profit' : 'profit-negative';
+                    const daysLeft = getDaysUntilRent(item);
+                    const nextDate = getNextRentDate(item);
+
+                    let rentDayDisplay = item.rent_day ? `每月${item.rent_day}号` : '-';
+                    let nextRentDisplay = '-';
+                    let rowClass = '';
+
+                    if (nextDate && item.status === '已租') {
+                        nextRentDisplay = `${nextDate.getMonth()+1}/${nextDate.getDate()}`;
+                        if (daysLeft !== null) {
+                            if (daysLeft <= 0) {
+                                nextRentDisplay += ` <span class="rent-due-tag rent-due-overdue">${daysLeft === 0 ? '今天' : '逾期'+Math.abs(daysLeft)+'天'}</span>`;
+                                rowClass = 'row-overdue';
+                            } else if (daysLeft <= (item.remind_days || 3)) {
+                                nextRentDisplay += ` <span class="rent-due-tag rent-due-urgent">${daysLeft}天</span>`;
+                                rowClass = 'row-urgent';
+                            } else {
+                                nextRentDisplay += ` <span class="rent-due-tag rent-due-normal">${daysLeft}天</span>`;
+                            }
+                        }
+                    }
+
+                    return `<tr class="${rowClass}">
+                        <td>${idx + 1}</td>
+                        <td><strong>${item.tenant || '-'}</strong></td>
+                        <td>${item.name}</td>
+                        <td>${item.start_date || '-'}</td>
+                        <td>${item.end_date || '-'}</td>
+                        <td><span class="${getPayClass(item.pay_method)}">${item.pay_method || '-'}</span></td>
+                        <td>${rentDayDisplay}</td>
+                        <td>${nextRentDisplay}</td>
+                        <td>${item.landlord_price || '-'}</td>
+                        <td>${item.sub_landlord_price || '-'}</td>
+                        <td>${item.tenant_price || '-'}</td>
+                        <td>${item.agency_fee || '-'}</td>
+                        <td>${item.deposit || '-'}</td>
+                        <td>${item.invoice_price || '-'}</td>
+                        <td><span class="${profitClass}">${profit >= 0 ? '+' : ''}${profit}</span></td>
+                        <td><span class="${getStatusClass(item.status)}">${item.status}</span></td>
+                        <td>${item.remark || '-'}</td>
+                        <td class="actions">
+                            <button class="btn btn-edit" onclick="editProperty(${item.id})">编辑</button>
+                            <button class="btn btn-danger" onclick="deleteProperty(${item.id})">删</button>
+                        </td>
+                    </tr>`;
+                }).join('');
+            }
+
+            updateStats(filtered);
+            updateTenantFilter();
+            renderReminders();
+        }
+
+        function updateStats(filtered) {
+            const total = allData.length;
+            const rented = allData.filter(d => d.status === '已租').length;
+            const vacant = allData.filter(d => d.status === '空置').length;
+            const totalProfit = allData.reduce((sum, d) => {
+                return sum + ((d.tenant_price || 0) - (d.sub_landlord_price || d.landlord_price || 0));
+            }, 0);
+
+            let dueCount = 0;
+            allData.forEach(item => {
+                if (item.status === '已租' && item.rent_day) {
+                    const days = getDaysUntilRent(item);
+                    if (days !== null && days <= (item.remind_days || 3)) dueCount++;
+                }
+            });
+
+            document.getElementById('stats').innerHTML = `
+                <div class="stat-card">总：<span>${total}</span>套</div>
+                <div class="stat-card">已租：<span>${rented}</span></div>
+                <div class="stat-card">空置：<span>${vacant}</span></div>
+                <div class="stat-card">月利润：<span>${totalProfit >= 0 ? '+' : ''}${totalProfit}</span>元</div>
+                ${dueCount > 0 ? `<div class="stat-card warning">待收租：<span>${dueCount}</span>条</div>` : ''}
+            `;
+        }
+
+        function openModal(id) {
+            document.getElementById('modalOverlay').classList.add('active');
+            document.getElementById('modalTitle').textContent = id ? '编辑房源' : '添加房源';
+            document.getElementById('editId').value = id || '';
+
+            if (id) {
+                const item = allData.find(d => d.id === id);
+                if (item) {
+                    document.getElementById('f_tenant').value = item.tenant || '';
+                    document.getElementById('f_name').value = item.name || '';
+                    document.getElementById('f_startDate').value = item.start_date || '';
+                    document.getElementById('f_endDate').value = item.end_date || '';
+                    document.getElementById('f_payMethod').value = item.pay_method || '月付';
+                    document.getElementById('f_status').value = item.status || '已租';
+                    document.getElementById('f_rentDay').value = item.rent_day || '';
+                    document.getElementById('f_remindDays').value = item.remind_days || 3;
+                    document.getElementById('f_landlordPrice').value = item.landlord_price || '';
+                    document.getElementById('f_subLandlordPrice').value = item.sub_landlord_price || '';
+                    document.getElementById('f_tenantPrice').value = item.tenant_price || '';
+                    document.getElementById('f_agencyFee').value = item.agency_fee || '';
+                    document.getElementById('f_deposit').value = item.deposit || '';
+                    document.getElementById('f_invoicePrice').value = item.invoice_price || '';
+                    document.getElementById('f_remark').value = item.remark || '';
+                }
+            } else {
+                clearForm();
+            }
+        }
+
+        function closeModal() {
+            document.getElementById('modalOverlay').classList.remove('active');
+            clearForm();
+        }
+
+        function clearForm() {
+            ['f_tenant','f_name','f_startDate','f_endDate','f_landlordPrice','f_subLandlordPrice','f_tenantPrice','f_agencyFee','f_deposit','f_invoicePrice','f_remark','f_rentDay'].forEach(id => {
+                document.getElementById(id).value = '';
+            });
+            document.getElementById('f_payMethod').value = '月付';
+            document.getElementById('f_status').value = '已租';
+            document.getElementById('f_remindDays').value = '3';
+            document.getElementById('editId').value = '';
+        }
+
+        async function saveProperty() {
+            const name = document.getElementById('f_name').value.trim();
+            if (!name) { alert('请输入房屋名称'); return; }
+            const tenant = document.getElementById('f_tenant').value.trim();
+            if (!tenant) { alert('请输入租客姓名'); return; }
+
+            const btn = document.getElementById('saveBtn');
+            btn.textContent = '保存中...';
+            btn.disabled = true;
+
+            const editId = document.getElementById('editId').value;
+
+            const record = {
+                tenant: tenant,
+                name: name,
+                start_date: document.getElementById('f_startDate').value || null,
+                end_date: document.getElementById('f_endDate').value || null,
+                pay_method: document.getElementById('f_payMethod').value,
+                status: document.getElementById('f_status').value,
+                rent_day: parseInt(document.getElementById('f_rentDay').value) || 0,
+                remind_days: parseInt(document.getElementById('f_remindDays').value) || 3,
+                landlord_price: parseFloat(document.getElementById('f_landlordPrice').value) || 0,
+                sub_landlord_price: parseFloat(document.getElementById('f_subLandlordPrice').value) || 0,
+                tenant_price: parseFloat(document.getElementById('f_tenantPrice').value) || 0,
+                agency_fee: parseFloat(document.getElementById('f_agencyFee').value) || 0,
+                deposit: parseFloat(document.getElementById('f_deposit').value) || 0,
+                invoice_price: parseFloat(document.getElementById('f_invoicePrice').value) || 0,
+                remark: document.getElementById('f_remark').value.trim()
+            };
+
+            let error;
+            if (editId) {
+                ({ error } = await supabase.from('properties').update(record).eq('id', parseInt(editId)));
+            } else {
+                ({ error } = await supabase.from('properties').insert([record]));
+            }
+
+            btn.textContent = '保存';
+            btn.disabled = false;
+
+            if (error) {
+                alert('保存失败: ' + error.message);
+                return;
+            }
+
+            closeModal();
+            await loadData();
+        }
+
+        function editProperty(id) {
+            openModal(id);
+        }
+
+        async function deleteProperty(id) {
+            if (!confirm('确定删除？')) return;
+            const { error } = await supabase.from('properties').delete().eq('id', id);
+            if (error) {
+                alert('删除失败: ' + error.message);
+                return;
+            }
+            await loadData();
+        }
+
+        function exportData() {
+            if (allData.length === 0) { alert('暂无数据'); return; }
+            let csv = '\ufeff序号,租客,房屋名称,起始,到期,付款方式,交租日,房东价,二房东价,租客价,中介费,押金,开票价,状态,备注\n';
+            allData.forEach((item, idx) => {
+                csv += `${idx+1},"${item.tenant||''}","${item.name}",${item.start_date||''},${item.end_date||''},${item.pay_method||''},${item.rent_day||''},${item.landlord_price||''},${item.sub_landlord_price||''},${item.tenant_price||''},${item.agency_fee||''},${item.deposit||''},${item.invoice_price||''},${item.status||''},"${item.remark||''}"\n`;
+            });
+            const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(blob);
+            link.download = '房源数据_' + new Date().toISOString().slice(0,10) + '.csv';
+            link.click();
+        }
+
+        // 初始化
+        loadData();
+    </script>
+</body>
+</html>
