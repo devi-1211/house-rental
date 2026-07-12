@@ -4,13 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>房源管理系统</title>
-    <script src="https://unpkg.com/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
-    <script>
-        // 如果unpkg也加载失败，尝试jsdelivr
-        if (typeof supabase === 'undefined') {
-            document.write('<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"><\/script>');
-        }
-    </script>
+    <!-- 不依赖任何外部SDK，使用原生fetch调用Supabase REST API -->
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -397,37 +391,30 @@
     </div>
 
     <script>
-        // Supabase 配置
-        const SUPABASE_URL = 'https://remnezpnamtpinqzfoby.supabase.co';
-        const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJlbW5lenBuYW10cGlucXpmb2J5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODM4MzE5ODYsImV4cCI6MjA5OTQwNzk4Nn0.wTz6-dpcxWKMQEk-QTqKZoNaPY_x6Epdmt9LQyE18Ak';
+        // Supabase REST API 配置（不依赖SDK）
+        const API_URL = 'https://remnezpnamtpinqzfoby.supabase.co/rest/v1/properties';
+        const API_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJlbW5lenBuYW10cGlucXpmb2J5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODM4MzE5ODYsImV4cCI6MjA5OTQwNzk4Nn0.wTz6-dpcxWKMQEk-QTqKZoNaPY_x6Epdmt9LQyE18Ak';
 
-        let db;
-        try {
-            if (typeof window.supabase === 'undefined') {
-                throw new Error('SDK未加载');
-            }
-            db = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-        } catch(e) {
-            document.getElementById('tableBody').innerHTML = '<tr><td colspan="18" style="text-align:center;padding:40px;color:#ff4d4f;">数据库连接组件加载失败，请检查网络后刷新页面</td></tr>';
-        }
-        const supabase = db;
+        const headers = {
+            'apikey': API_KEY,
+            'Authorization': 'Bearer ' + API_KEY,
+            'Content-Type': 'application/json',
+            'Prefer': 'return=representation'
+        };
 
         let allData = [];
 
         // 从数据库加载数据
         async function loadData() {
-            const { data, error } = await supabase
-                .from('properties')
-                .select('*')
-                .order('created_at', { ascending: false });
-
-            if (error) {
-                console.error('加载数据失败:', error);
-                alert('数据加载失败，请检查网络连接');
-                return;
+            try {
+                const res = await fetch(API_URL + '?select=*&order=created_at.desc', { headers });
+                if (!res.ok) throw new Error('HTTP ' + res.status);
+                allData = await res.json();
+                renderTable();
+            } catch(e) {
+                console.error('加载失败:', e);
+                document.getElementById('tableBody').innerHTML = '<tr><td colspan="18" style="text-align:center;padding:40px;color:#ff4d4f;">数据加载失败: ' + e.message + '<br>请检查网络后刷新</td></tr>';
             }
-            allData = data || [];
-            renderTable();
         }
 
         // 计算下次交租日期
@@ -698,20 +685,34 @@
                 remark: document.getElementById('f_remark').value.trim()
             };
 
-            let error;
-            if (editId) {
-                ({ error } = await supabase.from('properties').update(record).eq('id', parseInt(editId)));
-            } else {
-                ({ error } = await supabase.from('properties').insert([record]));
+            try {
+                let res;
+                if (editId) {
+                    res = await fetch(API_URL + '?id=eq.' + parseInt(editId), {
+                        method: 'PATCH',
+                        headers,
+                        body: JSON.stringify(record)
+                    });
+                } else {
+                    res = await fetch(API_URL, {
+                        method: 'POST',
+                        headers,
+                        body: JSON.stringify([record])
+                    });
+                }
+                if (!res.ok) {
+                    const err = await res.text();
+                    throw new Error(err);
+                }
+            } catch(e) {
+                btn.textContent = '保存';
+                btn.disabled = false;
+                alert('保存失败: ' + e.message);
+                return;
             }
 
             btn.textContent = '保存';
             btn.disabled = false;
-
-            if (error) {
-                alert('保存失败: ' + error.message);
-                return;
-            }
 
             closeModal();
             await loadData();
@@ -723,9 +724,14 @@
 
         async function deleteProperty(id) {
             if (!confirm('确定删除？')) return;
-            const { error } = await supabase.from('properties').delete().eq('id', id);
-            if (error) {
-                alert('删除失败: ' + error.message);
+            try {
+                const res = await fetch(API_URL + '?id=eq.' + id, {
+                    method: 'DELETE',
+                    headers
+                });
+                if (!res.ok) throw new Error('删除失败');
+            } catch(e) {
+                alert(e.message);
                 return;
             }
             await loadData();
